@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =====================================================
-# File Store Bot - rootless Linux installer
+# File Store Bot - rootless Linux installer (alwaysdata / VPS)
 #
-# No sudo/root required. Sets up everything under the current
-# user's home directory using existing PHP + MySQL/MariaDB.
+# No root needed. Sets everything up under the current user.
+# Uses existing PHP + MySQL/MariaDB on the server.
 #
 # What it does:
 #  - Checks that php-cli and mysql client exist
@@ -45,19 +45,17 @@ echo
 # =====================================================
 b "[1/6] Checking dependencies..."
 if ! command -v php >/dev/null 2>&1; then
-  r "PHP CLI not found. Install php-cli, e.g. (ask your sysadmin):"
-  echo "  Debian/Ubuntu: sudo apt install php-cli php-mysql php-curl php-mbstring"
-  echo "  RHEL/CentOS:   sudo dnf install php-cli php-mysqlnd php-curl php-mbstring"
+  r "PHP CLI not found. Ask your hosting provider to install php-cli, or use a server that has it."
+  echo "  (Debian/Ubuntu: sudo apt install php-cli php-mysql php-curl php-mbstring)"
   exit 1
 fi
-if ! php -m | grep -qi curl;        then y "Warning: php-curl extension missing - Telegram API needs it."; fi
-if ! php -m | grep -qi 'pdo_mysql'; then y "Warning: pdo_mysql extension missing - DB needs it."; fi
-if ! php -m | grep -qi mbstring;    then y "Warning: php-mbstring extension missing - Persian text needs it."; fi
+if ! php -m | grep -qi 'curl';       then y "Warning: php-curl extension missing - Telegram API needs it.".; fi
+if ! php -m | grep -qi 'pdo_mysql';  then y "Warning: pdo_mysql extension missing - DB needs it.".; fi
+if ! php -m | grep -qi 'mbstring';   then y "Warning: php-mbstring extension missing - Persian text needs it.".; fi
 
 if ! command -v mysql >/dev/null 2>&1 && ! command -v mariadb >/dev/null 2>&1; then
-  r "MySQL/MariaDB client not found. Install it:"
-  echo "  sudo apt install mariadb-clients  (or default-mysql-client)"
-  echo "  sudo dnf install mariadb"
+  r "MySQL/MariaDB client not found. Ask your hosting provider to install it."
+  echo "  (Debian/Ubuntu: sudo apt install mariadb-clients)"
   exit 1
 fi
 MYSQL_CLI="$(command -v mysql 2>/dev/null || command -v mariadb)"
@@ -72,11 +70,15 @@ b "[2/6] Collecting settings..."
 DB_NAME="$(ask 'Database name' 'seller_db')"
 DB_USER="$(ask 'Database user' "${DB_NAME}_user')"
 g "A random DB password will be generated. Set MYSQL_PASS env var to override."
-if [ -n "${MYSQL_PASS:-}" ]; then DB_PASS="$MYSQL_PASS"; else DB_PASS="$(openssl rand -base64 18 | tr -d '=+/' | head -c 24)"; fi
+if [ -n "${MYSQL_PASS:-}" ]; then
+  DB_PASS="$MYSQL_PASS"
+else
+  DB_PASS="$(openssl rand -base64 18 | tr -d '=+/' | head -c 24)"
+fi
 BOT_TOKEN="$(ask_secret 'Telegram bot token from BotFather')"
 ADMIN_ID="$(ask 'Your Telegram numeric ID from userinfobot')"
 ADMIN_ID="${ADMIN_ID:-0}"
-WORKER_URL="$(ask 'Telegram proxy URL (Deno/Worker) empty for direct' '')"
+WORKER_URL="$(ask 'Telegram proxy URL (Deno/Worker) - empty for direct' '')"
 
 echo
 b "Summary:"
@@ -95,12 +97,12 @@ read -rp "$(b 'Proceed? [y/N] ')" ok
 # =====================================================
 b "[3/6] Creating database..."
 PRIV_SQL="$(mktemp)"
-cat > "$PRIV_SQL" <<SQLEOF
-CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
-GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';
-FLUSH PRIVILEGES;
-SQLEOF
+{
+  echo "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+  echo "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';"
+  echo "GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';"
+  echo "FLUSH PRIVILEGES;"
+} > "$PRIV_SQL"
 
 create_db() {
   local user="$1" pass="$2"
@@ -120,7 +122,7 @@ elif create_db "root" "" 2>/dev/null; then
 else
   y "Could not create the database automatically."
   echo "A privileged MySQL account is needed (root or a user with CREATE privileges)."
-  PRIV_USER="$(ask 'Privileged MySQL user' 'root')"
+  PRIV_USER="$(ask 'Privileged MySQL user' "$(whoami)")"
   PRIV_PASS="$(ask_secret "Password for $PRIV_USER - empty if none")"
   if create_db "$PRIV_USER" "$PRIV_PASS"; then
     created=true
