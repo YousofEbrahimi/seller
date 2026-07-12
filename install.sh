@@ -68,7 +68,7 @@ echo
 # =====================================================
 b "[2/6] Collecting settings..."
 DB_NAME="$(ask 'Database name' 'seller_db')"
-DB_USER="$(ask 'Database user' "${DB_NAME}_user')"
+DB_USER="$(ask 'Database user' "${DB_NAME}_user)"
 g "A random DB password will be generated. Set MYSQL_PASS env var to override."
 if [ -n "${MYSQL_PASS:-}" ]; then
   DB_PASS="$MYSQL_PASS"
