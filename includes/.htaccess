@@ -1,0 +1,3 @@
+# Block direct web access to PHP includes
+Order Allow,Deny
+Deny from all

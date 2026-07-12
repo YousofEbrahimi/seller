@@ -1,0 +1,15 @@
+# Secrets — never commit
+includes/config.local.php
+includes/installed.lock
+
+# Runtime / logs
+error.log
+bot.log
+bot.pid
+
+# Editor / OS
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
