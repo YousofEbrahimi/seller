@@ -82,8 +82,8 @@ echo
 b "Summary:"
 echo "  DB name   : $DB_NAME"
 echo "  DB user   : $DB_USER"
-echo "  DB pass   : ${DB_PASS%"${DB_PASS#???}"}****"
-echo "  Bot token : ${BOT_TOKEN:0:8}****"
+echo "  DB pass   : $(printf '%s' "$DB_PASS" | cut -c1-3)****"
+echo "  Bot token : $(printf '%s' "$BOT_TOKEN" | cut -c1-8)****"
 echo "  Admin ID  : $ADMIN_ID"
 echo "  Worker    : ${WORKER_URL:-(direct)}"
 echo
