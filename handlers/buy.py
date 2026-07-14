@@ -1,11 +1,12 @@
 """Buy flow: create order, await receipt upload, notify admins."""
 from __future__ import annotations
 
+from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from db import Card, Order, Product, User, get_session, setting
-from helpers import back_button, fa_num, generate_order_code, is_user_admin, main_menu_kb, toman
+from helpers import back_button, ensure_user, fa_num, generate_order_code, is_user_admin, main_menu_kb, toman
 from services import notify_admins
 
 
@@ -13,8 +14,6 @@ async def start_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE, prod_id: int
     cb = update.callback_query
     s = get_session()
     try:
-        user = s.scalar(select(User).where(User.telegram_id == update.effective_user.id)) if False else None
-        from helpers import ensure_user
         userrecord = ensure_user(s, update.effective_user.id, update.effective_user.username,
                                  update.effective_user.first_name)
         p = s.get(Product, prod_id)
@@ -67,6 +66,7 @@ async def handle_receipt_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
     msg = update.effective_message
     s = get_session()
     try:
+        user = s.merge(user)
         order = s.scalar(
             select(Order).where(
                 Order.id == order_id, Order.user_id == user.id,
@@ -133,7 +133,3 @@ async def handle_receipt_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
         )
     finally:
         s.close()
-
-
-# needed import
-from sqlalchemy import select  # noqa: E402,F401

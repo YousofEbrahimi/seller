@@ -43,7 +43,7 @@ class User(Base):
     is_blocked: Mapped[int] = mapped_column(Integer, default=0)
     is_admin: Mapped[int] = mapped_column(Integer, default=0)
     state: Mapped[str | None] = mapped_column(String(100))
-    state_data: Mapped[str | None] = mapped_column(String(255))
+    state_data: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

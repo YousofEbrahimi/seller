@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 
 from db import User, get_session, setting
 from helpers import (
+    back_button,
     ensure_user,
     is_user_admin,
     main_menu_kb,
@@ -60,6 +61,23 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await send_welcome(update, ctx)
 
 
+async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Cancel any active wizard and return to the main menu."""
+    telegram_id = update.effective_user.id
+    s = get_session()
+    try:
+        user = ensure_user(
+            s, telegram_id, update.effective_user.username,
+            update.effective_user.first_name, update.effective_user.last_name,
+        )
+        user.state = None
+        user.state_data = ""
+        s.commit()
+    finally:
+        s.close()
+    await send_welcome(update, ctx)
+
+
 async def cmd_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     from handlers.admin import admin_menu
 
@@ -105,12 +123,58 @@ async def text_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 await admin_menu(update, ctx)
                 return
 
-        # If user is in a wizard state, route to state handler
+        # If user is in a wizard state, route to state handler.
+        # Some wizard steps expect non-text media (file/photo/video) instead of text:
+        #   admin_pfile  → product file upload   (admin only)
+        #   admin_bc_text → broadcast content (text or media, admin only)
+        #   receipt:ID    → receipt upload        (any user)
+        # Those media steps route to their own handlers; text-based states go to handle_state.
         if user.state:
             from handlers.shop import handle_state as _hs
 
-            if user.state.startswith(("admin_", "receipt:", "search")):
+            msg = update.effective_message
+            has_media = bool(msg.document or msg.photo or msg.video)
+
+            # Cancel takes precedence over any wizard state.
+            if text in ("⬅️ بازگشت به منو", "/cancel"):
+                user.state = None
+                s.commit()
+                await send_welcome(update, ctx)
+                return
+
+            # --- States that accept media (or text) directly ---
+            if user.state == "admin_pfile" and has_media:
+                from handlers.admin import wiz_product_file
+                s.close()
+                await wiz_product_file(update, ctx, user)
+                return
+
+            # Broadcast wizard accepts both text and media.
+            if user.state == "admin_bc_text" and (text or has_media):
+                from handlers.admin import wiz_broadcast_content
+                s.close()
+                await wiz_broadcast_content(update, ctx, user, msg)
+                return
+
+            # Receipt upload accepts media or text (text is treated as caption/note).
+            if user.state.startswith("receipt:") and has_media:
                 await _hs(update, ctx, user)
+                return
+
+            # --- Text-based wizard states ---
+            if user.state.startswith(("admin_", "receipt:", "search")):
+                if not text:
+                    if has_media:
+                        await ctx.bot.send_message(
+                            chat_id=telegram_id,
+                            text="❗ الان منتظر متن هستم، نه فایل. /cancel برای لغو.",
+                        )
+                    return  # stickers/animations/etc — ignore
+                await _hs(update, ctx, user)
+                return
+
+            # Non-admin/receipt/search state with media and no text: ignore
+            if not text:
                 return
 
         # Membership gate (admins exempt)
@@ -165,7 +229,3 @@ async def text_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await send_welcome(update, ctx)
     finally:
         s.close()
-
-
-def back_button() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup([["⬅️ بازگشت به منو"]], resize_keyboard=True)

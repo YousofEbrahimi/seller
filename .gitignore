@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+.env.local
 seller.db
 *.log
 *.pid
@@ -8,3 +9,5 @@ uploads/files/
 uploads/previews/
 .venv/
 venv/
+.idea/
+.vscode/

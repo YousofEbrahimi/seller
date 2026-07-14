@@ -135,18 +135,19 @@ async def admin_order_action(update: Update, ctx: ContextTypes.DEFAULT_TYPE, act
                 text=f"✅ سفارش <code>{order.order_code}</code> تایید شد و فایل برای کاربر ارسال شد.",
                 parse_mode="HTML",
             )
-            await ctx.bot.send_message(
-                chat_id=buyer.telegram_id,
-                text=f"✅ سفارش شما تایید شد!\n📦 محصول: {prod.name if prod else '-'}\n\nدر ادامه فایل محصول ارسال می‌شود:",
-                reply_markup=main_menu_kb(),
-            )
-            delivered = await deliver_order_file(ctx.bot, order, prod, buyer.telegram_id) if prod else False
-            if not delivered:
+            if buyer:
                 await ctx.bot.send_message(
                     chat_id=buyer.telegram_id,
-                    text="⚠️ فایل محصول یافت نشد. با پشتیبانی تماس بگیرید.",
+                    text=f"✅ سفارش شما تایید شد!\n📦 محصول: {prod.name if prod else '-'}\n\nدر ادامه فایل محصول ارسال می‌شود:",
                     reply_markup=main_menu_kb(),
                 )
+                delivered = await deliver_order_file(ctx.bot, order, prod, buyer.telegram_id) if prod else False
+                if not delivered:
+                    await ctx.bot.send_message(
+                        chat_id=buyer.telegram_id,
+                        text="⚠️ فایل محصول یافت نشد. با پشتیبانی تماس بگیرید.",
+                        reply_markup=main_menu_kb(),
+                    )
             return
 
         if action == "admin_reject":
@@ -159,11 +160,12 @@ async def admin_order_action(update: Update, ctx: ContextTypes.DEFAULT_TYPE, act
                 text=f"❌ سفارش <code>{order.order_code}</code> رد شد.",
                 parse_mode="HTML",
             )
-            await ctx.bot.send_message(
-                chat_id=buyer.telegram_id,
-                text=f"❌ سفارش شما با کد <code>{order.order_code}</code> متأسفانه رد شد.\nبرای پیگیری با پشتیبانی در تماس باشید.",
-                parse_mode="HTML",
-            )
+            if buyer:
+                await ctx.bot.send_message(
+                    chat_id=buyer.telegram_id,
+                    text=f"❌ سفارش شما با کد <code>{order.order_code}</code> متأسفانه رد شد.\nبرای پیگیری با پشتیبانی در تماس باشید.",
+                    parse_mode="HTML",
+                )
             return
 
         if action == "admin_info":
@@ -174,14 +176,15 @@ async def admin_order_action(update: Update, ctx: ContextTypes.DEFAULT_TYPE, act
             s.commit()
             await update.callback_query.answer("درخواست توضیح ارسال شد")
             await ctx.bot.send_message(chat_id=update.effective_chat.id,
-                                       text="❓ از کاربر توضیح بیشتر خواسته شد.")
-            await ctx.bot.send_message(
-                chat_id=buyer.telegram_id,
-                text=(f"❓ سفارش شما با کد <code>{order.order_code}</code> نیاز به توضیح بیشتر دارد.\n"
-                      "لطفاً جزئیات بیشتری درباره رسید ارسال کنید."),
-                reply_markup=back_button(),
-                parse_mode="HTML",
-            )
+                                        text="❓ از کاربر توضیح بیشتر خواسته شد.")
+            if buyer:
+                await ctx.bot.send_message(
+                    chat_id=buyer.telegram_id,
+                    text=(f"❓ سفارش شما با کد <code>{order.order_code}</code> نیاز به توضیح بیشتر دارد.\n"
+                          "لطفاً جزئیات بیشتری درباره رسید ارسال کنید."),
+                    reply_markup=back_button(),
+                    parse_mode="HTML",
+                )
     finally:
         s.close()
 

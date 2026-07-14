@@ -4,7 +4,8 @@ from __future__ import annotations
 import re
 import secrets
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
@@ -20,6 +21,7 @@ from db import (
     Setting,
     User,
     get_session,
+    log_error,
     set_setting,
     setting,
 )
@@ -41,19 +43,43 @@ ADMIN_PER_PAGE = 8
 # =====================================================
 # state_data helpers (compact k=v;k=v format)
 # =====================================================
+import json
+
 def _parse_sd(data: str | None) -> dict:
     if not data:
         return {}
-    out: dict[str, str] = {}
-    for pair in data.split(";"):
-        if "=" in pair:
-            k, v = pair.split("=", 1)
-            out[k.strip()] = v.strip()
-    return out
+    try:
+        return json.loads(data)
+    except Exception:
+        # Fallback for old data
+        out: dict[str, str] = {}
+        for pair in data.split(";"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                out[k.strip()] = v.strip()
+        return out
 
 
 def _format_sd(d: dict) -> str:
-    return ";".join(f"{k}={v}" for k, v in d.items())
+    return json.dumps(d, ensure_ascii=False)
+
+
+def _reload_user(s: Session, user: User) -> User:
+    """Re-attach ``user`` to session ``s`` so subsequent writes commit cleanly.
+
+    The handlers receive a ``User`` instance from an outer session which may
+    already be closed by the time the wizard runs. Using ``s.merge`` would re-
+    load the row if necessary, but since it keeps the in-memory state we use it
+    here as a safe attach. We read ``user.id`` first (the PK never changes) and
+    fall back to a select-by-id if merge complains so that we always operate on
+    a managed instance of the current row.
+    """
+    try:
+        return s.merge(user)
+    except Exception:
+        return s.get(User, user.id)  # type: ignore[return-value]
+
+
 
 
 # =====================================================
@@ -217,9 +243,11 @@ async def handle_admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
 async def handle_admin_state(
     update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: User, text: str
 ) -> None:
-    state = user.state or ""
     s = get_session()
     try:
+        user = s.merge(user)
+        state = user.state or ""
+
         if text in ("⬅️ بازگشت به منو", "/cancel", "/admin"):
             user.state = None
             user.state_data = ""
@@ -233,7 +261,15 @@ async def handle_admin_state(
 
         # States that expect non-text messages (file upload) are handled by
         # start.py's text_menu gate; here we only handle text-based wizard steps.
-        if state == "admin_pname":
+        if state == "admin_pfile":
+            # Text sent while admin_pfile expects a file — prompt again, unless cancelling.
+            await ctx.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="❗ لطفاً یک فایل (عکس، ویدیو یا سند) بفرستید، نه متن. یا /cancel برای لغو.",
+                reply_markup=back_button(),
+            )
+            return
+        elif state == "admin_pname":
             await wiz_product_name(update, ctx, user, text)
             return
         elif state == "admin_pprice":
@@ -244,6 +280,24 @@ async def handle_admin_state(
             return
         elif state == "admin_pdesc":
             await wiz_product_desc(update, ctx, user, text)
+            return
+        elif state == "admin_pcat":
+            await ctx.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="📁 لطفاً از دکمه‌های زیر یک دسته را انتخاب کنید.",
+            )
+            return
+        elif state == "admin_pvip":
+            await ctx.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="⭐ لطفاً از دکمه‌ها نوع محصول (VIP یا معمولی) را انتخاب کنید.",
+            )
+            return
+        elif state == "admin_psave":
+            await ctx.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="✅ لطفاً از دکمه‌ها وضعیت انتشار را انتخاب کنید.",
+            )
             return
         elif state == "admin_catname":
             await wiz_category_name(update, ctx, user, text)
@@ -488,6 +542,7 @@ async def wiz_category_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user
         icon, text = m.group(1), m.group(2)
     s = get_session()
     try:
+        user = _reload_user(s, user)
         max_sort = s.scalar(select(func.max(Category.sort_order))) or 0
         s.add(Category(name=text, icon=icon, sort_order=max_sort + 1, is_active=1))
         user.state = None
@@ -528,7 +583,9 @@ async def admin_category_delete_confirm(update: Update, ctx: ContextTypes.DEFAUL
     await update.callback_query.answer()
     s = get_session()
     try:
-        s.query(Product).filter(Product.category_id == cat_id).update({"category_id": None})
+        products = s.scalars(select(Product).where(Product.category_id == cat_id)).all()
+        for p in products:
+            p.category_id = None
         c = s.get(Category, cat_id)
         if c:
             s.delete(c)
@@ -720,6 +777,8 @@ async def wiz_product_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user:
     sd = {"file": f"files/{local_name}", "name": file_name, "size": str(size), "ext": ext}
     s = get_session()
     try:
+        # user object may be detached from a closed session in start.py —  merge to keep writes valid.
+        user = s.merge(user)
         user.state_data = _format_sd(sd)
         user.state = "admin_pname"
         s.commit()
@@ -747,6 +806,7 @@ async def wiz_product_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user:
     sd["pname"] = text
     s = get_session()
     try:
+        user = _reload_user(s, user)
         user.state_data = _format_sd(sd)
         user.state = "admin_pprice"
         s.commit()
@@ -768,6 +828,7 @@ async def wiz_product_price(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user
     sd["price"] = str(price)
     s = get_session()
     try:
+        user = _reload_user(s, user)
         user.state_data = _format_sd(sd)
         user.state = "admin_pcat"
         s.commit()
@@ -826,6 +887,7 @@ async def wiz_product_tags(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user:
     sd["tags"] = tags
     s = get_session()
     try:
+        user = _reload_user(s, user)
         user.state_data = _format_sd(sd)
         user.state = "admin_pdesc"
         s.commit()
@@ -848,6 +910,7 @@ async def wiz_product_desc(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user:
     sd["description"] = desc
     s = get_session()
     try:
+        user = _reload_user(s, user)
         user.state_data = _format_sd(sd)
         user.state = "admin_pvip"
         s.commit()
@@ -1026,6 +1089,7 @@ async def wiz_channel_user(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user:
 
     s = get_session()
     try:
+        user = _reload_user(s, user)
         sd = {"username": username, "title": title, "channel_id": channel_id}
         user.state = "admin_channelinvite"
         user.state_data = _format_sd(sd)
@@ -1056,6 +1120,7 @@ async def wiz_channel_invite(update: Update, ctx: ContextTypes.DEFAULT_TYPE, use
     sd["invite_link"] = text
     s = get_session()
     try:
+        user = _reload_user(s, user)
         user.state = "admin_channeltitle"
         user.state_data = _format_sd(sd)
         s.commit()
@@ -1085,6 +1150,7 @@ async def wiz_channel_title(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user
         
     s = get_session()
     try:
+        user = _reload_user(s, user)
         new_channel = Channel(
             channel_username=sd["username"],
             channel_id=sd.get("channel_id") or None,
@@ -1205,6 +1271,7 @@ async def wiz_card_num(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: Use
     sd = {"card_num": text}
     s = get_session()
     try:
+        user = _reload_user(s, user)
         user.state = "admin_cardholder"
         user.state_data = _format_sd(sd)
         s.commit()
@@ -1234,6 +1301,7 @@ async def wiz_card_holder(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: 
     sd["holder"] = text
     s = get_session()
     try:
+        user = _reload_user(s, user)
         user.state = "admin_cardbank"
         user.state_data = _format_sd(sd)
         s.commit()
@@ -1256,6 +1324,7 @@ async def wiz_card_bank(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: Us
     
     s = get_session()
     try:
+        user = _reload_user(s, user)
         new_card = Card(
             card_number=sd["card_num"],
             holder_name=sd["holder"],
@@ -1396,6 +1465,7 @@ async def wiz_setting_value(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user
     text = text.strip()
     s = get_session()
     try:
+        user = _reload_user(s, user)
         set_setting(s, setting_key, text)
         user.state = None
         user.state_data = ""
@@ -1457,6 +1527,8 @@ async def admin_broadcast_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
 async def wiz_broadcast_content(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: User, message) -> None:
     s = get_session()
     try:
+        # user may be detached from a closed session — merge first.
+        user = s.merge(user)
         sd = _parse_sd(user.state_data)
         bc_type = sd.get("bc_type", "text")
         
@@ -1697,7 +1769,7 @@ async def admin_logs_clear(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
     await update.callback_query.answer()
     s = get_session()
     try:
-        s.query(Log).delete()
+        s.execute(delete(Log))
         s.commit()
         await ctx.bot.send_message(chat_id=update.effective_chat.id, text="🧹 تمام لاگ‌ها پاک شدند.")
     finally:

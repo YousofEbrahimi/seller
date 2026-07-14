@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import threading
 from pathlib import Path
 
 from sqlalchemy import select
@@ -43,30 +41,6 @@ async def check_required_channels_async(bot: Bot, telegram_id: int) -> list[dict
         except TelegramError:
             not_joined.append(entry)
     return not_joined
-
-
-def run_async(coro):
-    """Run a coroutine from sync context safely."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            result = {}
-            def runner():
-                inner = asyncio.new_event_loop()
-                result["val"] = inner.run_until_complete(coro)
-                inner.close()
-            t = threading.Thread(target=runner)
-            t.start()
-            t.join()
-            return result.get("val")
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
-
-
-def check_required_channels(bot: Bot, telegram_id: int) -> list[dict]:
-    """Sync wrapper around the async channel check."""
-    return run_async(check_required_channels_async(bot, telegram_id))
 
 
 async def deliver_order_file(bot: Bot, order: Order, product: Product, chat_id: int) -> bool:

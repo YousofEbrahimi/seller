@@ -72,12 +72,18 @@ Open `.env` and configure:
 - `DATABASE_URL`: 
   - SQLite: `sqlite:///seller.db`
   - MySQL: `mysql+pymysql://USER:PASS@HOST:PORT/DBNAME?charset=utf8mb4`
+- `STORE_NAME`: Display name shown in the bot (default: `فروشگاه فایل`).
+- `TELEGRAM_API_BASE`: Leave empty for direct access. If `api.telegram.org` is blocked from your host, deploy a reverse proxy (e.g. on Deno Deploy) and put its URL here.
+- `PROXY_HOST` / `PROXY_PORT` / `PROXY_TYPE`: Optional HTTP/HTTPS/SOCKS proxy if direct Telegram access is blocked.
 
 ### 5. Initialize the Database
 Run the installation script to build database tables, populate default messages/settings, and register the admin IDs:
 ```bash
 python install.py
 ```
+The script verifies the bot token by calling `getMe` and prints a success banner when done. If it reports a Telegram connection error but still creates the tables, deploy a proxy and re-run it.
+
+> Note: `install.py` is only required for the very first set-up. The bot itself also calls `init_db()` / `seed_defaults()` on startup via `post_init`, so tables are kept in sync automatically.
 
 ### 6. Run the Bot
 Use the process manager script:

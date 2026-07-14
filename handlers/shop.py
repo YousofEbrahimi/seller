@@ -230,10 +230,13 @@ async def handle_state(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: Use
 
     s = get_session()
     text = (update.effective_message.text or "").strip()
+    # Attach user to this session so subsequent writes commit cleanly.
+    user = s.merge(user)
     state = user.state
     try:
-        if text in ("⬅️ بازگشت به منو", "/cancel", "/admin"):
+        if text and text in ("⬅️ بازگشت به منو", "/cancel", "/admin"):
             user.state = None
+            user.state_data = ""
             s.commit()
             if text == "/admin" and is_user_admin(user):
                 from handlers.admin import admin_menu
@@ -250,6 +253,7 @@ async def handle_state(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: Use
             return
 
         if state and state.startswith("receipt:"):
+            # Receipt upload can be text (explanation note) or media (photo/document).
             order_id = int(state.split(":", 1)[1])
             await handle_receipt_upload(update, ctx, user, order_id)
             return

@@ -1,6 +1,6 @@
 """File Store Telegram Bot — main entry point.
 
-Run with:  python -m bot  OR  python main.py
+Run with:  python main.py
 Bot uses long polling. No webhook/domain/SSL needed.
 """
 from __future__ import annotations
@@ -26,6 +26,7 @@ from db import init_db, seed_defaults, get_session
 from handlers.start import (
     cmd_start,
     cmd_admin,
+    cmd_cancel,
     text_menu,
 )
 from handlers.callbacks import callback_router
@@ -60,7 +61,7 @@ async def post_init(app: Application) -> None:
 
 def build_app() -> Application:
     kwargs = cfg.get_proxy_request_kwargs()
-    app = (
+    builder = (
         ApplicationBuilder()
         .token(cfg.bot_token)
         .post_init(post_init)
@@ -69,22 +70,24 @@ def build_app() -> Application:
         .connect_timeout(60)
         .pool_timeout(60)
     )
+    if kwargs:
+        # PTB supports a proxy via httpx through proxy_url or proxy; use get_updates_proxy/request_proxy.
+        proxy_url = kwargs.get("proxy_url")
+        if proxy_url:
+            builder = builder.proxy_url(proxy_url).get_updates_proxy_url(proxy_url)
     if cfg.telegram_api_base:
-        import httpx
-
-        app = app.base_url(cfg.telegram_api_base).base_file_url(cfg.telegram_api_base)
-    app = app.build()
+        builder = builder.base_url(cfg.telegram_api_base).base_file_url(cfg.telegram_api_base)
+    app = builder.build()
     # Handlers
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("admin", cmd_admin))
-    app.add_handler(CommandHandler("cancel", cmd_admin))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, text_menu))
     return app
 
 
 def main() -> None:
-    startup()
     log.info("Starting long-polling bot…")
     app = build_app()
     app.run_polling(allowed_updates=Update.ALL_TYPES)
