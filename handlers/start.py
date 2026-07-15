@@ -9,6 +9,7 @@ from db import User, get_session, setting
 from helpers import (
     back_button,
     ensure_user,
+    is_blocked,
     is_user_admin,
     main_menu_kb,
     membership_kb,
@@ -24,6 +25,12 @@ async def send_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = ensure_user(
             s, telegram_id, user_data.username, user_data.first_name, user_data.last_name,
         )
+        if is_blocked(user):
+            await ctx.bot.send_message(
+                chat_id=telegram_id,
+                text="⛔ شما از استفاده از این ربات مسدود شده‌اید.",
+            )
+            return
         welcome = setting(s, "welcome_text", "سلام! خوش آمدید.")
         not_joined = await check_required_channels_async(ctx.bot, telegram_id)
         if not_joined:
@@ -108,6 +115,14 @@ async def text_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             update.effective_user.first_name, update.effective_user.last_name,
         )
 
+        # Blocked users get a single explanation and nothing else.
+        if is_blocked(user):
+            await ctx.bot.send_message(
+                chat_id=telegram_id,
+                text="⛔ شما از استفاده از این ربات مسدود شده‌اید.",
+            )
+            return
+
         # /start payload handled elsewhere
         if text.startswith("/start"):
             user.state = None
@@ -158,6 +173,7 @@ async def text_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Receipt upload accepts media or text (text is treated as caption/note).
             if user.state.startswith("receipt:") and has_media:
+                s.close()
                 await _hs(update, ctx, user)
                 return
 

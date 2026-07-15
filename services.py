@@ -105,7 +105,9 @@ def get_admin_targets() -> list[int]:
     try:
         notify_id = s.get(Setting, "admin_notify_id")
         if notify_id and notify_id.value and notify_id.value.isdigit():
-            targets.add(int(notify_id.value))
+            notify_int = int(notify_id.value)
+            if notify_int > 0:
+                targets.add(notify_int)
         admins = s.scalars(select(User).where(User.is_admin == 1)).all()
         for a in admins:
             targets.add(a.telegram_id)
@@ -116,12 +118,19 @@ def get_admin_targets() -> list[int]:
     return list(targets)
 
 
-async def notify_admins(bot: Bot, text: str, reply_markup=None, file=None) -> None:
-    """Send a notification to all admin targets."""
+async def notify_admins(bot: Bot, text: str, reply_markup=None, file=None, file_is_photo: bool = False) -> None:
+    """Send a notification to all admin targets.
+
+    When ``file`` is provided, send it inline: as a photo when ``file_is_photo``
+    (so image receipts render inline) or as a document otherwise.
+    """
     for tid in get_admin_targets():
         try:
             if file is not None:
-                await bot.send_document(chat_id=tid, document=file, caption=text, reply_markup=reply_markup)
+                if file_is_photo:
+                    await bot.send_photo(chat_id=tid, photo=file, caption=text, reply_markup=reply_markup)
+                else:
+                    await bot.send_document(chat_id=tid, document=file, caption=text, reply_markup=reply_markup)
             else:
                 await bot.send_message(chat_id=tid, text=text, reply_markup=reply_markup)
         except TelegramError:

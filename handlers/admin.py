@@ -629,14 +629,14 @@ async def admin_order_list(
             total = s.scalar(select(func.count()).select_from(Order)) or 0
             orders = s.execute(
                 select(Order, Product.name)
-                .join(Product, Product.id == Order.product_id)
+                .outerjoin(Product, Product.id == Order.product_id)
                 .order_by(Order.id.desc()).offset(offset).limit(per_page)
             ).all()
         else:
             total = s.scalar(select(func.count()).select_from(Order).where(Order.status == status)) or 0
             orders = s.execute(
                 select(Order, Product.name)
-                .join(Product, Product.id == Order.product_id)
+                .outerjoin(Product, Product.id == Order.product_id)
                 .where(Order.status == status)
                 .order_by(Order.id.desc()).offset(offset).limit(per_page)
             ).all()
@@ -648,7 +648,7 @@ async def admin_order_list(
         rows = [filter_row]
         for o, pname in orders:
             rows.append([InlineKeyboardButton(
-                f"🧾 {o.order_code} — {pname} ({fa_num(o.price)}ت)",
+                f"🧾 {o.order_code} — {pname or '(حذف شده)'} ({fa_num(o.price)}ت)",
                 callback_data=f"adm_order:{o.id}",
             )])
         pages = max(1, (total + per_page - 1) // per_page)
@@ -726,9 +726,11 @@ async def admin_order_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE, order
             elif o.receipt_file_type == "document":
                 await ctx.bot.send_document(update.effective_chat.id, o.receipt_file_id,
                                             caption=f"🧾 رسید {o.order_code}")
-            await ctx.bot.send_message(
-                chat_id=update.effective_chat.id, text="⚠️ رسید بالا ارسال شد.",
-            )
+            else:
+                await ctx.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"🧾 توضیح رسید {o.order_code}:\n{o.receipt_message or '(بدون توضیح)'}",
+                )
         else:
             await update.callback_query.answer("رسید وجود ندارد", show_alert=True)
     finally:

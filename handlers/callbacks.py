@@ -6,7 +6,7 @@ from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from db import Order, Product, User, get_session
-from helpers import back_button, ensure_user, is_user_admin, main_menu_kb, membership_kb
+from helpers import back_button, ensure_user, is_blocked, is_user_admin, main_menu_kb, membership_kb
 from services import check_required_channels_async, deliver_order_file
 
 
@@ -56,6 +56,9 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         user = ensure_user(s, update.effective_user.id, update.effective_user.username,
                            update.effective_user.first_name)
+        if is_blocked(user):
+            await update.callback_query.answer("⛔ شما مسدود شده‌اید.", show_alert=True)
+            return
         if not is_user_admin(user):
             not_joined = await check_required_channels_async(ctx.bot, update.effective_user.id)
             if not_joined:

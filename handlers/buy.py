@@ -31,7 +31,7 @@ async def start_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE, prod_id: int
             order = existing
         else:
             order = Order(
-                order_code=generate_order_code(),
+                order_code=generate_order_code(s),
                 user_id=userrecord.id,
                 product_id=prod_id,
                 price=p.price,
@@ -124,7 +124,10 @@ async def handle_receipt_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
             ]
         )
         file_obj = file_id if file_id and file_type in ("photo", "document") else None
-        await notify_admins(ctx.bot, admin_text, reply_markup=kb, file=file_obj)
+        send_as_photo = file_obj is not None and file_type == "photo"
+        await notify_admins(
+            ctx.bot, admin_text, reply_markup=kb, file=file_obj, file_is_photo=send_as_photo
+        )
         await ctx.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"✅ رسید شما دریافت شد و در انتظار تایید مدیر است.\nکد پیگیری: <code>{order.order_code}</code>",

@@ -19,7 +19,6 @@ from db import (
 from helpers import (
     ensure_user,
     fa_num,
-    generate_order_code,
     is_user_admin,
     main_menu_kb,
     membership_kb,
@@ -74,7 +73,7 @@ async def show_products_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE, cat_i
         cat = s.get(Category, cat_id)
         rows = []
         for p in products:
-            price = fa_num(f"{p.price:,}") + "ت" if p.price > 0 else "رایگان"
+            price = toman(p.price) if p.price > 0 else "رایگان"
             rows.append([InlineKeyboardButton(f"📦 {p.name} — {price}", callback_data=f"prod:{p.id}")])
         pages = max(1, (total + per_page - 1) // per_page)
         if pages > 1:
@@ -139,7 +138,7 @@ async def do_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE, query: str) 
             return
         rows = []
         for p in products:
-            price = fa_num(f"{p.price:,}") + "ت" if p.price > 0 else "رایگان"
+            price = toman(p.price) if p.price > 0 else "رایگان"
             rows.append([InlineKeyboardButton(f"📦 {p.name} — {price}", callback_data=f"prod:{p.id}")])
         rows.append([InlineKeyboardButton("🏠 منو", callback_data="home")])
         await ctx.bot.send_message(
@@ -202,7 +201,8 @@ async def show_orders(update: Update, ctx: ContextTypes.DEFAULT_TYPE, page: int 
         offset = (page - 1) * per_page
         total = s.scalar(select(func.count()).select_from(Order).where(Order.user_id == user.id)) or 0
         orders = s.execute(
-            select(Order, Product.name).join(Product, Product.id == Order.product_id)
+            select(Order, Product.name)
+            .outerjoin(Product, Product.id == Order.product_id)
             .where(Order.user_id == user.id)
             .order_by(Order.id.desc())
             .offset(offset)
@@ -215,7 +215,7 @@ async def show_orders(update: Update, ctx: ContextTypes.DEFAULT_TYPE, page: int 
         text = "📋 <b>سفارش‌های شما</b>\n"
         badges = {"pending":"⏳ در انتظار","approved":"✅ تایید شد","rejected":"❌ رد شد","need_info":"❓ نیاز به توضیح"}
         for o, pname in orders:
-            text += f"\n🧾 <code>{o.order_code}</code> | {pname} | {badges.get(o.status, o.status)}\n"
+            text += f"\n🧾 <code>{o.order_code}</code> | {pname or '(محصول حذف شده)'} | {badges.get(o.status, o.status)}\n"
         rows = [[InlineKeyboardButton("🏠 منو", callback_data="home")]]
         await ctx.bot.send_message(chat_id=update.effective_chat.id, text=text,
                                    reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")

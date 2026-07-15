@@ -87,7 +87,7 @@ if cfg.admin_ids:
             if user is None:
                 user = User(
                     telegram_id=admin_id,
-                    referral_code=generate_referral_code(),
+                    referral_code=generate_referral_code(s),
                     is_admin=1,
                     first_name="Admin",
                 )
